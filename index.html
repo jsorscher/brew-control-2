@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pour-over Brew Tracker (Prototype)</title>
+  <link rel="stylesheet" href="./styles.css">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- OpenCV.js (wasm) -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
+  <!-- AprilTag.js (assumed available via CDN) -->
+  <script src="https://unpkg.com/apriltag-js/dist/apriltag.min.js"></script>
+  <!-- Placeholder for seven-seg OCR JS (SSOCR) -->
+  <script>
+    // NOTE: Replace this with a real SSOCR library. Here we expose a placeholder function
+    // `readSevenSeg(imageData)` that should return {value: number, confidence: 0..1}.
+    function readSevenSeg(imageData) {
+      // Dummy: return NaN to indicate no reading. Integrators should provide a real lib.
+      return { value: NaN, confidence: 0 };
+    }
+  </script>
+  <style>
+    /* Improved responsive CSS for mobile */
+    :root{--gap:8px;--control-height:44px}
+    html,body{height:100%;margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;background:#f5f6f8}
+    #app{display:flex;flex-direction:column;height:100%}
+    header{padding:10px;background:#0b1220;color:#fff}
+    main{flex:1;display:flex;gap:var(--gap);padding:var(--gap);align-items:flex-start}
+    /* On small screens stack vertically */
+    @media (max-width:900px){
+      main{flex-direction:column}
+      #right{width:100%}
+    }
+    #left{flex:1;position:relative;min-width:260px}
+    video{width:100%;height:auto;border-radius:10px;background:#000;display:block}
+    canvas{border-radius:10px}
+    #controls{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap}
+    button,input{padding:8px;border-radius:8px;border:1px solid #ccc;background:#fff;min-height:var(--control-height)}
+    button{touch-action:manipulation}
+    label{display:flex;align-items:center;gap:6px}
+    #right{width:420px;max-width:100%}
+    #chartWrap{background:#fff;padding:8px;border-radius:8px}
+    .overlay{position:absolute;left:0;top:0;pointer-events:none}
+    #log{height:140px;overflow:auto;background:#111;color:#0f0;padding:8px;border-radius:6px;font-family:monospace}
+    .controls-row{display:flex;gap:8px;flex-wrap:wrap}
+    .grow{flex:1}
+    #fullscreenBtn{display:inline-flex;align-items:center;justify-content:center}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1 style="margin:0;font-size:18px">Pour-over Brew Tracker — Prototype</h1>
+    </header>
+    <main>
+      <section id="left">
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="overlay" class="overlay"></canvas>
+        <div id="controls">
+          <div class="controls-row">
+            <button id="startBtn" class="grow">Start</button>
+            <button id="stopBtn" disabled>Stop</button>
+            <button id="fullscreenBtn">⤢</button>
+          </div>
+          <div class="controls-row">
+            <button id="calibrateBtn">Calibrate</button>
+            <label class="grow">Manual scale (g): <input id="manualScale" type="number" step="0.1"></label>
+            <button id="exportBtn">Export CSV</button>
+          </div>
+        </div>
+        <div style="margin-top:8px;color:#444;font-size:13px">
+          Tip: place an AprilTag or ArUco marker anywhere on the kettle. The ROI will follow the detected marker.
+        </div>
+      </section>
+      <aside id="right">
+        <div id="chartWrap">
+          <canvas id="chart" width="400" height="240"></canvas>
+        </div>
+        <h3 style="margin:8px 0 4px">Logs</h3>
+        <div id="log">Logs will appear here.</div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="./main.js"></script>
+</body>
+</html>
