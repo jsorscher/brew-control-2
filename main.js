@@ -119,18 +119,24 @@ function drawROI() {
   
   // Draw OCR result and confidence
   if (!isNaN(lastOCR.value)) {
+    const isMobile = window.innerWidth < 768;
+    const fontSize = isMobile ? 24 : 32;
+    const padding = isMobile ? 5 : 10;
+    const width = isMobile ? 160 : 200;
+    const height = isMobile ? 40 : 50;
+    
     // Background for readability
     overlayCtx.fillStyle = 'rgba(0,0,0,0.7)';
-    overlayCtx.fillRect(10, 10, 200, 50);
+    overlayCtx.fillRect(padding, padding, width, height);
     
     // Draw value
     overlayCtx.fillStyle = lastOCR.confidence > 0.8 ? 'lime' : 'yellow';
-    overlayCtx.font = '32px sans-serif';
-    overlayCtx.fillText(`${lastOCR.value}g`, 20, 45);
+    overlayCtx.font = `${fontSize}px sans-serif`;
+    overlayCtx.fillText(`${lastOCR.value}g`, padding + 10, padding + (height * 0.7));
     
     // Draw confidence
-    overlayCtx.font = '16px sans-serif';
-    overlayCtx.fillText(`${(lastOCR.confidence * 100).toFixed(1)}%`, 140, 45);
+    overlayCtx.font = `${fontSize/2}px sans-serif`;
+    overlayCtx.fillText(`${(lastOCR.confidence * 100).toFixed(1)}%`, padding + width - 60, padding + (height * 0.7));
   }
 }
 
@@ -251,19 +257,61 @@ async function ssocr(imageData) {
 
     // Create debug view showing 3 processing stages
     const debugCanvas = document.createElement('canvas');
-    debugCanvas.width = imageData.width * 3; // Show 3 stages side by side
-    debugCanvas.height = imageData.height;
+    // On mobile, stack vertically instead of horizontally
+    const isMobile = window.innerWidth < 768;
+    if (isMobile) {
+      debugCanvas.width = Math.min(imageData.width, window.innerWidth - 20);
+      debugCanvas.height = imageData.height * 3;
+    } else {
+      debugCanvas.width = Math.min(imageData.width * 3, window.innerWidth - 20);
+      debugCanvas.height = imageData.height;
+    }
+    
+    // Position debug view
     debugCanvas.style.position = 'fixed';
     debugCanvas.style.top = '10px';
-    debugCanvas.style.right = '10px';
+    debugCanvas.style.left = '50%';
+    debugCanvas.style.transform = 'translateX(-50%)';
     debugCanvas.style.border = '2px solid red';
     debugCanvas.style.backgroundColor = 'black';
     debugCanvas.style.zIndex = '1000';
+    debugCanvas.style.maxWidth = '100%';
+    debugCanvas.style.boxSizing = 'border-box';
     document.body.appendChild(debugCanvas);
     const debugCtx = debugCanvas.getContext('2d');
 
+    // Scale image to fit debug canvas
+    const scale = isMobile ? debugCanvas.width / imageData.width : 1;
+    const scaledWidth = imageData.width * scale;
+    const scaledHeight = imageData.height * scale;
+    
+    function drawStage(img, index, label) {
+      const x = isMobile ? 0 : scaledWidth * index;
+      const y = isMobile ? scaledHeight * index : 0;
+      
+      // Draw stage
+      debugCtx.save();
+      debugCtx.translate(x, y);
+      if (img instanceof ImageData) {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = img.width;
+        tempCanvas.height = img.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(img, 0, 0);
+        debugCtx.drawImage(tempCanvas, 0, 0, scaledWidth, scaledHeight);
+      } else {
+        debugCtx.drawImage(img, 0, 0, scaledWidth, scaledHeight);
+      }
+      
+      // Add label
+      debugCtx.fillStyle = 'lime';
+      debugCtx.font = '12px monospace';
+      debugCtx.fillText(label, 5, 15);
+      debugCtx.restore();
+    }
+    
     // Stage 1: Original
-    debugCtx.drawImage(canvas, 0, 0);
+    drawStage(canvas, 0, 'Original');
     
     // Stage 2: Grayscale + Contrast
     const enhancedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -279,7 +327,7 @@ async function ssocr(imageData) {
     }
     
     // Show enhanced version
-    debugCtx.putImageData(enhancedImageData, canvas.width, 0);
+    drawStage(enhancedImageData, 1, 'Enhanced');
     
     // Stage 3: Thresholding
     const threshold = 160; // Adjust this value based on your display
@@ -289,14 +337,7 @@ async function ssocr(imageData) {
     }
     
     // Show thresholded version
-    debugCtx.putImageData(enhancedImageData, canvas.width * 2, 0);
-    
-    // Add labels
-    debugCtx.fillStyle = 'lime';
-    debugCtx.font = '12px monospace';
-    debugCtx.fillText('Original', 5, 15);
-    debugCtx.fillText('Enhanced', canvas.width + 5, 15);
-    debugCtx.fillText('Threshold', canvas.width * 2 + 5, 15);
+    drawStage(enhancedImageData, 2, 'Threshold');
     
     // Put the final processed image back on the main canvas
     ctx.putImageData(enhancedImageData, 0, 0);
