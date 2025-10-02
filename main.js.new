@@ -1,0 +1,164 @@
+// main.js - Minimal: camera start + seven-seg OCR display
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const overlayCtx = overlay.getContext('2d');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const logEl = document.getElementById('log');
+
+let stream = null;
+let running = false;
+let rafId = null;
+let lastOCR = { value: NaN, confidence: 0, t: 0 };
+
+function log(msg) {
+  logEl.textContent = `[${new Date().toISOString()}] ${msg}`;
+}
+
+async function start() {
+  if (running) return;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    resizeCanvas();
+    running = true;
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    loop();
+    log('Camera started');
+  } catch (e) {
+    log('Camera error: ' + e.message);
+  }
+}
+
+function stop() {
+  if (!running) return;
+  running = false;
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  if (rafId) cancelAnimationFrame(rafId);
+  log('Stopped');
+}
+
+function resizeCanvas() {
+  overlay.width = video.videoWidth;
+  overlay.height = video.videoHeight;
+}
+
+function drawOverlay() {
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  overlayCtx.fillStyle = 'yellow';
+  overlayCtx.font = '36px sans-serif';
+  overlayCtx.fillText(!isNaN(lastOCR.value) ? `${lastOCR.value} g` : 'No read', 10, 40);
+}
+
+function captureFrameImageData() {
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return ctx.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function loop() {
+  if (!running) return;
+  try {
+    const imgData = captureFrameImageData();
+    const res = ssocr(imgData);
+    if (res && !isNaN(res.value)) {
+      lastOCR = { value: res.value, confidence: res.confidence || 0, t: Date.now()/1000 };
+    }
+  } catch (e) {
+    console.error('OCR error:', e);
+  }
+  drawOverlay();
+  rafId = requestAnimationFrame(loop);
+}
+
+// Simple seven-segment OCR (SSOCR)
+function ssocr(imageData) {
+  try {
+    // Create an offscreen canvas to work with the ImageData
+    const w = imageData.width, h = imageData.height;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(imageData, 0, 0);
+
+    // Resize to a manageable height for processing while preserving aspect
+    const targetH = 60;
+    const scale = Math.max(1, h / targetH);
+    const procW = Math.max(32, Math.round(w / scale));
+    const procH = Math.max(24, Math.round(h / scale));
+    const pcanvas = document.createElement('canvas');
+    pcanvas.width = procW; pcanvas.height = procH;
+    const pctx = pcanvas.getContext('2d');
+    pctx.drawImage(canvas, 0, 0, procW, procH);
+    const pdata = pctx.getImageData(0,0,procW,procH);
+
+    // Convert to grayscale and compute global threshold
+    const gray = new Uint8ClampedArray(procW*procH);
+    let sum = 0;
+    for (let i=0;i<procW*procH;i++){
+      const r = pdata.data[i*4], g = pdata.data[i*4+1], b = pdata.data[i*4+2];
+      const l = (0.299*r + 0.587*g + 0.114*b);
+      gray[i] = l;
+      sum += l;
+    }
+    const mean = sum / (procW*procH);
+    const thr = Math.max(40, mean * 0.7);
+
+    // Detect digits by sampling 7 segments in fixed regions
+    const segRects = [
+      [0.18,0.05,0.64,0.15], // a top
+      [0.82,0.18,0.16,0.32], // b top-right
+      [0.82,0.55,0.16,0.32], // c bottom-right
+      [0.18,0.82,0.64,0.15], // d bottom
+      [0.02,0.55,0.16,0.32], // e bottom-left
+      [0.02,0.18,0.16,0.32], // f top-left
+      [0.18,0.48,0.64,0.12]  // g middle
+    ];
+
+    const SEG_MAP = {
+      0x7E: '0', 0x30: '1', 0x6D: '2', 0x79: '3', 0x33: '4',
+      0x5B: '5', 0x5F: '6', 0x70: '7', 0x7F: '8', 0x7B: '9'
+    };
+
+    let mask = 0;
+    for (let si=0; si<7; si++) {
+      const r = segRects[si];
+      const x0 = Math.floor(r[0]*procW);
+      const y0 = Math.floor(r[1]*procH);
+      const rw = Math.max(1, Math.floor(r[2]*procW));
+      const rh = Math.max(1, Math.floor(r[3]*procH));
+      let onCount = 0, total = 0;
+      for (let y=y0; y<Math.min(procH,y0+rh); y++) {
+        for (let x=x0; x<Math.min(procW,x0+rw); x++) {
+          total++;
+          if (gray[y*procW + x] > thr) onCount++;
+        }
+      }
+      if (total>0 && onCount/total > 0.35) {
+        mask |= (1 << (6-si));
+      }
+    }
+
+    const digit = SEG_MAP[mask];
+    return digit ? { value: parseInt(digit), confidence: 0.8 } : { value: NaN, confidence: 0 };
+  } catch (e) {
+    return { value: NaN, confidence: 0 };
+  }
+}
+
+startBtn.addEventListener('click', start);
+stopBtn.addEventListener('click', stop);
+window.addEventListener('resize', resizeCanvas);
