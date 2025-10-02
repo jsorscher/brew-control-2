@@ -259,12 +259,15 @@ async function ssocr(imageData) {
     const debugCanvas = document.createElement('canvas');
     // On mobile, stack vertically instead of horizontally
     const isMobile = window.innerWidth < 768;
+    const maxWidth = Math.min(imageData.width, window.innerWidth - 20);
+    const displayScale = maxWidth / imageData.width;
+    
     if (isMobile) {
-      debugCanvas.width = Math.min(imageData.width, window.innerWidth - 20);
-      debugCanvas.height = imageData.height * 3;
+      debugCanvas.width = maxWidth;
+      debugCanvas.height = imageData.height * displayScale * 3;
     } else {
-      debugCanvas.width = Math.min(imageData.width * 3, window.innerWidth - 20);
-      debugCanvas.height = imageData.height;
+      debugCanvas.width = maxWidth * 3;
+      debugCanvas.height = imageData.height * displayScale;
     }
     
     // Position debug view
@@ -279,15 +282,14 @@ async function ssocr(imageData) {
     debugCanvas.style.boxSizing = 'border-box';
     document.body.appendChild(debugCanvas);
     const debugCtx = debugCanvas.getContext('2d');
-
-    // Scale image to fit debug canvas
-    const scale = isMobile ? debugCanvas.width / imageData.width : 1;
     const scaledWidth = imageData.width * scale;
     const scaledHeight = imageData.height * scale;
     
     function drawStage(img, index, label) {
-      const x = isMobile ? 0 : scaledWidth * index;
-      const y = isMobile ? scaledHeight * index : 0;
+      const stageWidth = debugCanvas.width / (isMobile ? 1 : 3);
+      const stageHeight = debugCanvas.height / (isMobile ? 3 : 1);
+      const x = isMobile ? 0 : stageWidth * index;
+      const y = isMobile ? stageHeight * index : 0;
       
       // Draw stage
       debugCtx.save();
@@ -298,9 +300,9 @@ async function ssocr(imageData) {
         tempCanvas.height = img.height;
         const tempCtx = tempCanvas.getContext('2d');
         tempCtx.putImageData(img, 0, 0);
-        debugCtx.drawImage(tempCanvas, 0, 0, scaledWidth, scaledHeight);
+        debugCtx.drawImage(tempCanvas, 0, 0, stageWidth, stageHeight);
       } else {
-        debugCtx.drawImage(img, 0, 0, scaledWidth, scaledHeight);
+        debugCtx.drawImage(img, 0, 0, stageWidth, stageHeight);
       }
       
       // Add label
@@ -313,31 +315,22 @@ async function ssocr(imageData) {
     // Stage 1: Original
     drawStage(canvas, 0, 'Original');
     
-    // Stage 2: Grayscale + Contrast
+    // Stage 2: Grayscale
     const enhancedImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = enhancedImageData.data;
     
-    // Convert to grayscale and increase contrast
+    // Convert to grayscale using proper luminance weights
     for (let i = 0; i < data.length; i += 4) {
-      // Convert to grayscale using proper luminance weights
       const gray = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-      // Increase contrast
-      const contrast = Math.max(0, Math.min(255, (gray - 128) * 2 + 128));
-      data[i] = data[i + 1] = data[i + 2] = contrast;
+      data[i] = data[i + 1] = data[i + 2] = gray;
     }
     
-    // Show enhanced version
-    drawStage(enhancedImageData, 1, 'Enhanced');
+    // Show grayscale version
+    drawStage(enhancedImageData, 1, 'Grayscale');
     
-    // Stage 3: Thresholding
-    const threshold = 160; // Adjust this value based on your display
-    for (let i = 0; i < data.length; i += 4) {
-      const value = data[i] > threshold ? 255 : 0;
-      data[i] = data[i + 1] = data[i + 2] = value;
-    }
-    
-    // Show thresholded version
-    drawStage(enhancedImageData, 2, 'Threshold');
+    // Stage 3: Original Size
+    // Draw the exact size that Tesseract will see
+    drawStage(enhancedImageData, 2, 'Actual Size');
     
     // Put the final processed image back on the main canvas
     ctx.putImageData(enhancedImageData, 0, 0);
